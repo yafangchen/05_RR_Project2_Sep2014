@@ -1,0 +1,121 @@
+---
+title: "NOAA Storm Data Analysis"
+output: html_document
+---
+Here I analyzed the consequences of different types of events on population health and economic loss to guide the preparation towards severe weather.
+
+Note: the generated .html file can be viewed at: https://yafangchen.github.io/05_RR_Project2_Sep2014/Project2.html
+
+## Data Processing
+The data was loaded and saved in the working directory and then read with the read.csv command.
+
+```{r,cache=TRUE}
+library(ggplot2)
+library(reshape2)
+if(!file.exists("repdata-data-StormData.csv")){
+        unzip("repdata-data-StormData.csv.bz2")
+}
+data <- read.csv("repdata-data-StormData.csv")
+dim(data)
+```
+
+### Subset relevant data
+The next step is to subset variables that are relevant to the questions. "FATALITIES" and "INJURIES" will be used for analyzing how the events harm population health, while "PROPDMG", "PROPDMGEXP", "CROPDMG" and "CROPDMGEXP" will be needed to analyze the economic damage. "PROPDMGEXP" and "CROPDMGEXP" are the magnitude values for "PROPDMG" and "CROPDMG", respectively.
+
+```{r}
+both <- data[,c("EVTYPE","FATALITIES","INJURIES","PROPDMG","PROPDMGEXP","CROPDMG","CROPDMGEXP")]
+```
+
+### Incorporate the magnitude value to calculate real property (PROP) damage
+```{r}
+both$PROPDMGEXP <- tolower(both$PROPDMGEXP)
+unique(both$PROPDMGEXP)
+both$PROPDMGEXP[both$PROPDMGEXP %in% c("+","0","?","-","")] <- 0
+both$PROPDMGEXP[both$PROPDMGEXP == "k"] <- 3
+both$PROPDMGEXP[both$PROPDMGEXP == "m"] <- 6
+both$PROPDMGEXP[both$PROPDMGEXP == "h"] <- 2
+both$PROPDMGEXP[both$PROPDMGEXP == "b"] <- 9
+unique(both$PROPDMGEXP)
+both$PROPDMGEXP <- as.numeric(both$PROPDMGEXP)
+both$PROP <- both$PROPDMG * 10^(both$PROPDMGEXP)
+```
+
+### Incorporate the magnitude value to calculate real CROP damage
+```{r}
+both$CROPDMGEXP <- tolower(both$CROPDMGEXP)
+unique(both$CROPDMGEXP)
+both$CROPDMGEXP[both$CROPDMGEXP %in% c("","?")] <- 0
+both$CROPDMGEXP[both$CROPDMGEXP == "m"] <- 6
+both$CROPDMGEXP[both$CROPDMGEXP == "k"] <- 3
+both$CROPDMGEXP[both$CROPDMGEXP == "b"] <- 9
+unique(both$CROPDMGEXP)
+both$CROPDMGEXP <- as.numeric(both$CROPDMGEXP)
+both$CROP <- both$CROPDMG * 10^(both$CROPDMGEXP)
+```
+
+### Clean up "EVTYPE"
+Upon aggregating the data and subsetting only records with positive values for population health threat or economic loss, values of "EVTYPE" was found to be messy. Thus the "EVTYPE" feature was cleaned up in the next step:
+
+```{r}
+aggboth <- aggregate(cbind(FATALITIES,INJURIES,PROP,CROP)~EVTYPE,both,sum)
+posaggboth <- aggboth[aggboth$FATALITIES>0|aggboth$INJURIES>0|aggboth$PROP>0|aggboth$CROP>0,]
+posaggboth$EVTYPE <- tolower(posaggboth$EVTYPE)
+##unique(posaggboth$EVTYPE)
+posaggboth$EVTYPE[grep("avalan",posaggboth$EVTYPE)] = "avalanche"
+posaggboth$EVTYPE[grep("snow",posaggboth$EVTYPE)] = "snow"
+posaggboth$EVTYPE[grep("heat",posaggboth$EVTYPE)] = "heat"
+posaggboth$EVTYPE[grep("cold",posaggboth$EVTYPE)] = "cold"
+posaggboth$EVTYPE[grep("drought|dry",posaggboth$EVTYPE)] = "drought"
+posaggboth$EVTYPE[grep("flood",posaggboth$EVTYPE)] = "flood"
+posaggboth$EVTYPE[grep("rain",posaggboth$EVTYPE)] = "rain"
+posaggboth$EVTYPE[grep("wind",posaggboth$EVTYPE)] = "wind"
+posaggboth$EVTYPE[grep("hurricane",posaggboth$EVTYPE)] = "hurricane"
+posaggboth$EVTYPE[grep("ic[ey]",posaggboth$EVTYPE)] = "ice"
+posaggboth$EVTYPE[grep("light[n ]ing",posaggboth$EVTYPE)] = "lightning"
+posaggboth$EVTYPE[grep("winter",posaggboth$EVTYPE)] = "winter"
+posaggboth$EVTYPE[grep("thunderstorm",posaggboth$EVTYPE)] = "thunderstorm"
+posaggboth$EVTYPE[grep("tornado",posaggboth$EVTYPE)] = "tornado"
+posaggboth$EVTYPE[grep("wild(.*)fire",posaggboth$EVTYPE)] = "wildfire"
+posaggboth$EVTYPE[grep("free",posaggboth$EVTYPE)] = "freeze"
+posaggboth$EVTYPE[grep("[^r]storm|^storm",posaggboth$EVTYPE)] = "storm"
+posaggboth$EVTYPE[grep("mud",posaggboth$EVTYPE)] = "mudslide"
+posaggboth$EVTYPE[grep("hail",posaggboth$EVTYPE)] = "hail"
+```
+
+## Results
+### What events are the most harmful towards population health?
+
+```{r}
+health <- posaggboth[posaggboth$FATALITIES>0|posaggboth$INJURIES>0,c("EVTYPE","FATALITIES","INJURIES")]
+health$tot <- health$FATALITIES + health$INJURIES
+healthTop10 <- health[order(health$tot,decreasing=TRUE)[1:10],]
+healthTop10
+MeltHealthTop10 <- melt(healthTop10[,1:3], id.vars=c("EVTYPE"))
+MeltHealthTop10$EVTYPE <- factor(MeltHealthTop10$EVTYPE,levels=unique(MeltHealthTop10$EVTYPE))
+ggplot(MeltHealthTop10,aes(x=EVTYPE,y=value,fill=variable)) + 
+        geom_bar(position="dodge",stat="identity",binwidth=1) + 
+        ggtitle("The 10 most harmful events to population health") + 
+        labs(x="",y="Number of people affected") + 
+        theme(axis.text.x=element_text(angle=45,hjust=1))
+```
+
+As shown above, **tornado** is the most harmful events to population health. The casuality (fatality plus injury) of tornado is way higher than that of other events.
+
+### What events cause the most economic damage?
+
+```{r}
+options(scipen=999)
+Econ <- posaggboth[posaggboth$PROP>0|posaggboth$CROP>0,c("EVTYPE","PROP","CROP")]
+Econ$totDMG <- Econ$PROP + Econ$CROP
+Econtop10 <- Econ[order(Econ$totDMG,decreasing=TRUE)[1:10],]
+Econtop10
+MeltEcontop10 <- melt(Econtop10[,1:3], id.vars=c("EVTYPE"))
+MeltEcontop10$EVTYPE <- factor(MeltEcontop10$EVTYPE,levels=unique(MeltEcontop10$EVTYPE))
+ggplot(MeltEcontop10,aes(x=EVTYPE,y=value,fill=variable)) + 
+        geom_bar(position="dodge",stat="identity",binwidth=1) + 
+        ggtitle("The 10 events caused the most economic damage") + 
+        labs(x="",y="Economic damge ($)") + 
+        theme(axis.text.x=element_text(angle=45,hjust=1))
+```
+
+As shown above, **flood** is the event that cause the most economic damage, followed by events such as **hurricane, tornado, storm and hail**.
